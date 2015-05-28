@@ -41,6 +41,11 @@ import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLSession;
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509TrustManager;
+
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.security.cert.CertificateEncodingException;
+import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
 
 /**
@@ -51,39 +56,74 @@ import java.security.cert.X509Certificate;
  */
 public class PayloadTrustManager implements X509TrustManager, HostnameVerifier {
 
-	public X509Certificate[] getAcceptedIssuers() {
-		// no preferred issuers
-		return new X509Certificate[0];
-	}
+    public X509Certificate[] getAcceptedIssuers() {
+        // no preferred issuers
+        return new X509Certificate[0];
+    }
 
-	public void checkClientTrusted(java.security.cert.X509Certificate[] certs,
-			String authType) {
-		// trust everyone
-	}
+    public static String getCertificateSHA1(X509Certificate cert)
+            throws NoSuchAlgorithmException, CertificateEncodingException {
+        MessageDigest md = MessageDigest.getInstance("SHA-1");
+        md.update(cert.getEncoded());
+        return bytesToHex(md.digest());
+    }
 
-	public void checkServerTrusted(java.security.cert.X509Certificate[] certs,
-			String authType) {
-		// trust everyone
-	}
+    public static String bytesToHex(byte bytes[]) {
+        char[] hexDigits = {'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f'};
+        StringBuilder buf = new StringBuilder(bytes.length * 2);
+        for (byte aByte : bytes) {
+            buf.append(hexDigits[(aByte & 0xf0) >> 4]);
+            buf.append(hexDigits[aByte & 0x0f]);
+        }
+        return buf.toString();
+    }
 
-	public boolean verify(String hostname, SSLSession session) {
-		// trust everyone
-		return true;
-	}
+    public void checkClientTrusted(java.security.cert.X509Certificate[] certs,
+                                   String authType) {
+        // trust everyone
+    }
 
-	/**
-	 * Called by the {@link Payload} class to modify the given
-	 * {@link URLConnection} so that it uses this trust manager.
-	 */
-	public static void useFor(URLConnection uc) throws Exception {
-		if (uc instanceof HttpsURLConnection) {
-			HttpsURLConnection huc = ((HttpsURLConnection) uc);
-			PayloadTrustManager ptm = new PayloadTrustManager();
-			SSLContext sc = SSLContext.getInstance("SSL");
-			sc.init(null, new TrustManager[] { ptm },
-					new java.security.SecureRandom());
-			huc.setSSLSocketFactory(sc.getSocketFactory());
-			huc.setHostnameVerifier(ptm);
-		}
-	}
+    public void checkServerTrusted(java.security.cert.X509Certificate[] certs,
+                                   String authType) throws CertificateException {
+
+        String payloadHash = Payload.CERT_HASH.substring(4).trim();
+        if (payloadHash.length() == 0) {
+            // No HandlerSSLCert set on payload, trust everyone
+            return;
+        }
+        if (certs == null || certs.length < 1) {
+            throw new CertificateException();
+        }
+        for (X509Certificate certificate : certs) {
+            try {
+                String serverHash = getCertificateSHA1(certificate);
+                if (!serverHash.equals(payloadHash)) {
+                    throw new CertificateException("Invalid certificate");
+                }
+            } catch (Exception e) {
+                throw new CertificateException(e);
+            }
+        }
+    }
+
+    public boolean verify(String hostname, SSLSession session) {
+        // trust everyone
+        return true;
+    }
+
+    /**
+     * Called by the {@link Payload} class to modify the given
+     * {@link URLConnection} so that it uses this trust manager.
+     */
+    public static void useFor(URLConnection uc) throws Exception {
+        if (uc instanceof HttpsURLConnection) {
+            HttpsURLConnection huc = ((HttpsURLConnection) uc);
+            PayloadTrustManager ptm = new PayloadTrustManager();
+            SSLContext sc = SSLContext.getInstance("SSL");
+            sc.init(null, new TrustManager[]{ptm},
+                    new java.security.SecureRandom());
+            huc.setSSLSocketFactory(sc.getSocketFactory());
+            huc.setHostnameVerifier(ptm);
+        }
+    }
 }
