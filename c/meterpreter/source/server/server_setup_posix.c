@@ -357,7 +357,7 @@ static VOID server_socket_flush(Transport* transport)
 		dprintf("[SERVER] Flushed %d bytes from the buffer", ret);
 
 		// The socket closed while we waited
-		if (ret == 0) {
+		if (ret <= 0) {
 			break;
 		}
 		continue;
@@ -889,8 +889,7 @@ DWORD THREADCALL cleanup_socket(THREAD* thread) {
 	dprintf("[TCP] waiting for disconnect from remote");
 	// loop until FD_CLOSE comes through.
 	while ((result = recv(fd, buf, sizeof(buf), 0)) != 0) {
-		if (result < 0) {
-			dprintf("[TCP] something went wrong on read.");
+		if (result <= 0) {
 			break;
 		}
 	}
@@ -937,6 +936,7 @@ static void transport_reset_tcp(Transport* transport, BOOL shuttingDown) {
 static BOOL configure_tcp_connection(Transport* transport) {
 	DWORD result = ERROR_SUCCESS;
 	size_t charsConverted;
+	char tempUrl[512] = {0};
 	TcpTransportContext* ctx = (TcpTransportContext*)transport->ctx;
 
 	// check if comms is already open via a staged payload
@@ -946,15 +946,20 @@ static BOOL configure_tcp_connection(Transport* transport) {
 	else {
 		dprintf("[TCP CONFIGURE] Url: %s", transport->url);
 
+		// copy the URL to the temp location and work from there
+		// so that we don't damage the original URL while breaking
+		// it up into its individual parts.
+		strncpy(tempUrl, transport->url, sizeof(tempUrl) - 1);
+
 		//transport->start_time = current_unix_timestamp();
 		transport->comms_last_packet = current_unix_timestamp();
 
-		if (strncmp(transport->url, "tcp", 3) == 0) {
-			char* pHost = strstr(transport->url, "//") + 2;
+		if (strncmp(tempUrl, "tcp", 3) == 0) {
+			char* pHost = strstr(tempUrl, "//") + 2;
 			char* pPort = strrchr(pHost, ':') + 1;
 
 			// check if we're using IPv6
-			if (transport->url[3] == '6') {
+			if (tempUrl[3] == '6') {
 				char* pScopeId = strrchr(pHost, '?') + 1;
 				*(pScopeId - 1) = '\0';
 				*(pPort - 1) = '\0';
