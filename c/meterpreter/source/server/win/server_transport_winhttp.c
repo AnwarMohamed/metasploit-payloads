@@ -51,18 +51,27 @@ static HINTERNET get_request_winhttp(HttpTransportContext *ctx, BOOL isGet, cons
 				dprintf("[PROXY] Proxy: %S", ieConfig.lpszProxy);
 				dprintf("[PROXY] Proxy Bypass: %S", ieConfig.lpszProxyBypass);
 
-				if (ieConfig.lpszAutoConfigUrl)
+				if (ieConfig.lpszAutoConfigUrl || ieConfig.fAutoDetect)
 				{
 					WINHTTP_AUTOPROXY_OPTIONS autoProxyOpts = { 0 };
 					WINHTTP_PROXY_INFO proxyInfo = { 0 };
 
-					dprintf("[PROXY] IE config set to autodetect with URL %S", ieConfig.lpszAutoConfigUrl);
+					if (ieConfig.fAutoDetect)
+					{
+						dprintf("[PROXY] IE config set to autodetect with DNS or DHCP");
 
-					autoProxyOpts.dwFlags = WINHTTP_AUTOPROXY_AUTO_DETECT | WINHTTP_AUTOPROXY_CONFIG_URL;
-					autoProxyOpts.dwAutoDetectFlags = WINHTTP_AUTO_DETECT_TYPE_DHCP | WINHTTP_AUTO_DETECT_TYPE_DNS_A;
+						autoProxyOpts.dwFlags = WINHTTP_AUTOPROXY_AUTO_DETECT;
+						autoProxyOpts.dwAutoDetectFlags = WINHTTP_AUTO_DETECT_TYPE_DHCP | WINHTTP_AUTO_DETECT_TYPE_DNS_A;
+					}
+					else
+					{
+						dprintf("[PROXY] IE config set to autodetect with URL %S", ieConfig.lpszAutoConfigUrl);
+
+						autoProxyOpts.dwFlags = WINHTTP_AUTOPROXY_CONFIG_URL;
+						autoProxyOpts.lpszAutoConfigUrl = ieConfig.lpszAutoConfigUrl;
+					}
+
 					autoProxyOpts.fAutoLogonIfChallenged = TRUE;
-					autoProxyOpts.lpszAutoConfigUrl = ieConfig.lpszAutoConfigUrl;
-
 					if (WinHttpGetProxyForUrl(ctx->internet, ctx->url, &autoProxyOpts, &proxyInfo))
 					{
 						ctx->proxy_for_url = malloc(sizeof(WINHTTP_PROXY_INFO));
@@ -865,12 +874,33 @@ static DWORD server_dispatch_http(Remote* remote, THREAD* dispatchThread)
 
 				// we also need to patch the new URI into the original transport URL, not just the currently
 				// active URI for comms. If we don't, then migration behaves badly.
-				// Start by locating the start of the URI in the current URL, by finding the third slash
-				wchar_t* csr = transport->url + wcslen(transport->url) - 2;
-				while (*csr != L'/')
+				// The URL looks like this:  http(s)://<domain-or-ip>:port/lurivalue/UUIDJUNK/
+				// Start by locating the start of the URI in the current URL, by finding the third slash,
+				// as this value includes the LURI
+				wchar_t* csr = transport->url;
+				for (int i = 0; i < 3; ++i)
 				{
-					--csr;
+					// We need to move to the next character first in case
+					// we are currently pointing at the previously found /
+					// we know we're safe skipping the first character in the whole
+					// URL because that'll be part of the scheme (ie. 'h' in http)
+					++csr;
+
+					while (*csr != L'\0' && *csr != L'/')
+					{
+						++csr;
+					}
+
+					dprintf("[DISPATCH] %d csr: %p -> %S", i, csr, csr);
+
+					// this shouldn't happen!
+					if (*csr == L'\0')
+					{
+						break;
+					}
 				}
+
+				// the pointer that we have will be 
 				dprintf("[DISPATCH] Pointer is at: %p -> %S", csr, csr);
 
 				// patch in the new URI
