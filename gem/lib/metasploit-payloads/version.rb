@@ -37,6 +37,7 @@ module MetasploitPayloads
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
   VERSION = '0.0.4'
 =======
   VERSION = '1.0.0'
@@ -156,6 +157,9 @@ module MetasploitPayloads
 >>>>>>> upstream/master
 =======
   VERSION = '1.3.16'
+>>>>>>> upstream/master
+=======
+  VERSION = '1.3.17'
 >>>>>>> upstream/master
 
   def self.version
